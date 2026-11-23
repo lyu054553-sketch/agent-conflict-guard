@@ -1,0 +1,435 @@
+<title>T3 多模型协作架构</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: 泳道图为主体——每条泳道是一个模型，行是流程先后；上方一张调用拓扑，下方是模型清单。 */
+:root {
+  --bg: #F4F5F7;
+  --surface: #FFFFFF;
+  --fg: #15171C;
+  --muted: #5B6270;
+  --line: #8F96A3;
+  --rule: #DFE2E8;
+  --stripe: #ECEEF2;
+
+  --me: #2D5BD0;      --me-tint: #E7EDFC;
+  --claude: #B0532A;  --claude-tint: #FBEFE8;
+  --neon: #5A52C7;    --neon-tint: #EDECFB;
+  --cn: #0B7F61;      --cn-tint: #E1F3EC;
+  --gpt: #3E4651;     --gpt-tint: #E9ECF0;
+
+  --font-body: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #101216; --surface: #191C22; --fg: #E8EAEE; --muted: #9AA1AD; --line: #6C7380; --rule: #2A2E36; --stripe: #15181D;
+    --me: #86A6FF; --me-tint: #1B2541;
+    --claude: #F09A70; --claude-tint: #33231B;
+    --neon: #ABA5FF; --neon-tint: #25233F;
+    --cn: #52CDA6; --cn-tint: #12302A;
+    --gpt: #C5CBD4; --gpt-tint: #23272E;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #101216; --surface: #191C22; --fg: #E8EAEE; --muted: #9AA1AD; --line: #6C7380; --rule: #2A2E36; --stripe: #15181D;
+  --me: #86A6FF; --me-tint: #1B2541;
+  --claude: #F09A70; --claude-tint: #33231B;
+  --neon: #ABA5FF; --neon-tint: #25233F;
+  --cn: #52CDA6; --cn-tint: #12302A;
+  --gpt: #C5CBD4; --gpt-tint: #23272E;
+  color-scheme: dark;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 40px 64px;
+}
+.page { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 48px; }
+
+header { display: flex; flex-direction: column; gap: 10px; max-width: 760px; }
+h1 { font-size: clamp(26px, 4vw, 34px); line-height: 1.25; margin: 0; font-weight: 700; text-wrap: balance; letter-spacing: -0.01em; }
+.lede { margin: 0; color: var(--muted); font-size: 16px; }
+h2 { font-size: 20px; margin: 0; font-weight: 700; text-wrap: balance; }
+.section-head { display: flex; flex-direction: column; gap: 4px; margin-bottom: 16px; }
+.section-head p { margin: 0; color: var(--muted); max-width: 68ch; }
+code, .mono { font-family: var(--font-mono); font-size: 12px; }
+
+.legend { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 13px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+
+.scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: 14px; background: var(--surface); border: 1px solid var(--rule); }
+.swipe-hint { display: none; font-size: 12px; color: var(--muted); margin: 8px 0 0; }
+@media (max-width: 900px) { .swipe-hint { display: block; } }
+
+/* ---------- 图的通用部分 ---------- */
+.stage { position: relative; display: grid; padding: 20px; }
+.wires { position: absolute; top: 0; left: 0; z-index: 1; pointer-events: none; overflow: visible; }
+.wires .wire { fill: none; stroke: var(--line); stroke-width: 1.5; }
+.wires .tip { fill: var(--line); stroke: none; }
+.wire-labels { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
+.wire-label {
+  position: absolute; transform: translate(-50%, -50%);
+  font-size: 11.5px; color: var(--muted); background: var(--surface);
+  padding: 0 6px; border-radius: 4px; white-space: nowrap; line-height: 1.6;
+}
+
+.node {
+  position: relative; z-index: 2;
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 10px 12px; border-radius: 10px;
+  background: var(--surface); border: 1px solid var(--rule);
+  align-self: center; min-width: 0;
+}
+.node b { font-size: 14px; font-weight: 700; line-height: 1.4; }
+.node span { font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+.node code { color: var(--muted); }
+.node .model { font-size: 12.5px; font-weight: 500; color: var(--fg); display: inline-flex; align-items: center; gap: 6px; }
+.node .model::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--lane); flex: none; }
+.node[data-lane="me"] { --lane: var(--me); background: var(--me-tint); border: 2px solid var(--me); }
+.node[data-lane="claude"] { --lane: var(--claude); }
+.node[data-lane="neon"] { --lane: var(--neon); background: var(--neon-tint); border-color: transparent; }
+.node[data-lane="cn"] { --lane: var(--cn); background: var(--cn-tint); border-color: transparent; }
+.node[data-lane="gpt"] { --lane: var(--gpt); background: var(--gpt-tint); border-color: transparent; }
+.tag {
+  position: absolute; top: -9px; right: 10px;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.04em; font-style: normal;
+  color: var(--surface); background: var(--cn); padding: 0 7px; border-radius: 999px; line-height: 18px;
+}
+.tag.pause { background: var(--me); }
+
+/* ---------- 调用拓扑 ---------- */
+#topo {
+  min-width: 1040px;
+  grid-template-columns: 0.7fr 0.9fr 1.15fr 1fr 1.2fr 1.7fr;
+  grid-template-rows: auto auto;
+  column-gap: 40px; row-gap: 34px;
+}
+.model-list { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; }
+.model-list div { display: flex; justify-content: space-between; gap: 10px; font-size: 12.5px; }
+.model-list .cn { color: var(--cn); font-weight: 500; }
+.model-list .cn::after { content: " 国模"; font-size: 11px; }
+
+/* ---------- 泳道图 ---------- */
+#flow {
+  min-width: 1080px;
+  grid-template-columns: 0.75fr 1.25fr 1fr 1.1fr 1fr;
+  grid-template-rows: repeat(16, auto);
+  column-gap: 28px; row-gap: 30px;
+  padding-top: 0;
+}
+.lane-bg { grid-row: 1 / 16; margin: 0 -14px; border-radius: 10px; z-index: 0; }
+.lane-bg.alt { background: var(--stripe); }
+.lane-head {
+  grid-row: 1; z-index: 2; padding: 16px 0 4px;
+  display: flex; flex-direction: column; gap: 0; align-self: end;
+}
+.lane-head b { font-size: 14px; color: var(--lane); }
+.lane-head span { font-size: 12px; color: var(--muted); }
+
+.pipeline {
+  grid-row: 16; grid-column: 1 / -1; z-index: 2;
+  margin-top: 6px; padding: 14px 16px 16px; border-radius: 12px;
+  background: var(--stripe); border: 1px solid var(--rule);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.pipeline > b { font-size: 14px; }
+.steps { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; }
+.step { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 8px 12px; display: flex; flex-direction: column; gap: 2px; min-width: 120px; flex: 1; }
+.step b { font-size: 13.5px; }
+.step span { font-size: 12px; color: var(--muted); }
+.step .model { color: var(--cn); font-weight: 500; }
+.arrow { align-self: center; color: var(--line); font-size: 16px; }
+
+/* ---------- 下方说明 ---------- */
+.two-col { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; }
+@media (max-width: 860px) { .two-col { grid-template-columns: minmax(0, 1fr); } }
+
+.cn-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.cn-list li { display: grid; grid-template-columns: 132px minmax(0, 1fr); gap: 12px; padding: 10px 14px; background: var(--cn-tint); border-radius: 10px; }
+.cn-list .m { font-weight: 700; color: var(--cn); font-size: 13.5px; }
+.cn-list .w { font-size: 14px; }
+.cn-list .w small { display: block; color: var(--muted); font-size: 12.5px; }
+@media (max-width: 480px) { .cn-list li { grid-template-columns: minmax(0, 1fr); gap: 2px; } }
+
+.rules { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; }
+.rules li::marker { color: var(--muted); }
+
+.table-wrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 12px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; min-width: 720px; font-size: 13.5px; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-size: 12px; font-weight: 500; color: var(--muted); letter-spacing: 0.04em; background: var(--stripe); }
+tr:last-child td { border-bottom: 0; }
+td .sw { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; vertical-align: middle; }
+td.via { color: var(--muted); }
+.chip-cn { display: inline-block; font-size: 11px; font-weight: 700; color: var(--cn); border: 1px solid var(--cn); border-radius: 999px; padding: 0 6px; margin-left: 6px; line-height: 16px; vertical-align: 1px; }
+
+footer { color: var(--muted); font-size: 13px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .node { transition: box-shadow 0.15s ease; }
+  .node:hover { box-shadow: 0 2px 10px rgba(0,0,0,0.08); }
+}
+</style>
+
+<div class="page">
+  <header>
+    <h1>T3 多模型协作架构</h1>
+    <p class="lede">Claude Opus 5.5 在 T3 Code 里担任主控，调度 Gemini、GPT 和三家国产模型，从需求一路做到上线。国产模型承担其中 5 个环节，都是量大、标准清楚、有人验收的活。</p>
+    <div class="legend" aria-label="图例">
+      <span><i class="dot" style="background:var(--me)"></i>我</span>
+      <span><i class="dot" style="background:var(--claude)"></i>Claude Opus 5.5（主控）</span>
+      <span><i class="dot" style="background:var(--neon)"></i>Gemini 4 Neon</span>
+      <span><i class="dot" style="background:var(--cn)"></i>国产模型</span>
+      <span><i class="dot" style="background:var(--gpt)"></i>GPT</span>
+    </div>
+  </header>
+
+  <!-- ================= 调用拓扑 ================= -->
+  <section>
+    <div class="section-head">
+      <h2>谁调用谁</h2>
+      <p>只有 Claude 直接和你对话。其他模型都由 Claude 通过两个脚本调用：Gemini 4 Neon 走 Antigravity 命令行，其余模型走 Codex 和本地 magpie 网关。</p>
+    </div>
+    <div class="scroll">
+      <div class="stage" id="topo">
+        <svg class="wires" aria-hidden="true"></svg>
+        <div class="wire-labels" aria-hidden="true"></div>
+
+        <div class="node" data-lane="me" id="t-me" style="grid-row:1;grid-column:1"><b>我</b><span>提需求、拍板</span></div>
+        <div class="node" id="t-t3" style="grid-row:1;grid-column:2"><b>T3 Code</b><span>Claude 会话</span></div>
+        <div class="node" data-lane="claude" id="t-claude" style="grid-row:1;grid-column:3">
+          <b>主控</b><span class="model">Claude Opus 5.5</span><code>claude-opus-5-5</code>
+        </div>
+        <div class="node" id="t-ask" style="grid-row:1;grid-column:4"><b>ask.sh</b><span>咨询、派活</span></div>
+        <div class="node" id="t-review" style="grid-row:2;grid-column:4"><b>review.sh</b><span>预审、终审</span></div>
+        <div class="node" id="t-agy" style="grid-row:1;grid-column:5"><b>Antigravity 命令行</b><code>agy -p</code><span>只读咨询</span></div>
+        <div class="node" id="t-codex" style="grid-row:2;grid-column:5"><b>Codex 命令行</b><code>codex exec / review</code><span>经 magpie 本地网关</span></div>
+        <div class="node" data-lane="neon" id="t-neon" style="grid-row:1;grid-column:6">
+          <span class="model">Gemini 4 Neon (High)</span><code>gemini-4-neon-high</code>
+        </div>
+        <div class="node" id="t-models" style="grid-row:2;grid-column:6">
+          <div class="model-list">
+            <div><span>GPT-6.2-Astra</span><code>gpt-6.2-astra</code></div>
+            <div><span>GPT-6.2-Sol</span><code>gpt-6.2-sol</code></div>
+            <div><span class="cn">Kimi K3.1 Pro</span><code>auto/kimi-k3.1-pro</code></div>
+            <div><span class="cn">MiniMax-M3</span><code>minimax-cn/MiniMax-M3</code></div>
+            <div><span class="cn">MiniMax-M3.1-Flash</span><code>minimax-cn/MiniMax-M3.1-Flash</code></div>
+            <div><span class="cn">DeepSeek V4.1 Flash</span><code>auto/deepseek-v4.1-flash</code></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="swipe-hint">图比屏幕宽，左右滑动查看。</p>
+  </section>
+
+  <!-- ================= 泳道图 ================= -->
+  <section>
+    <div class="section-head">
+      <h2>从需求到上线</h2>
+      <p>从上往下按先后顺序走。绿色标着“国模”的是国产模型新接手的环节；蓝框是流程停下来等你的地方。</p>
+    </div>
+    <div class="scroll">
+      <div class="stage" id="flow">
+        <svg class="wires" aria-hidden="true"></svg>
+        <div class="wire-labels" aria-hidden="true"></div>
+
+        <div class="lane-bg alt" style="grid-column:1"></div>
+        <div class="lane-bg" style="grid-column:2"></div>
+        <div class="lane-bg alt" style="grid-column:3"></div>
+        <div class="lane-bg" style="grid-column:4"></div>
+        <div class="lane-bg alt" style="grid-column:5"></div>
+
+        <div class="lane-head" style="grid-column:1;--lane:var(--me)"><b>我</b><span>需求和拍板</span></div>
+        <div class="lane-head" style="grid-column:2;--lane:var(--claude)"><b>Claude Opus 5.5</b><span>主控 · T3 Code</span></div>
+        <div class="lane-head" style="grid-column:3;--lane:var(--neon)"><b>Gemini 4 Neon (High)</b><span>Antigravity · 只读</span></div>
+        <div class="lane-head" style="grid-column:4;--lane:var(--cn)"><b>国产模型</b><span>Kimi · MiniMax · DeepSeek</span></div>
+        <div class="lane-head" style="grid-column:5;--lane:var(--gpt)"><b>GPT</b><span>Astra 写难活 · Sol 终审</span></div>
+
+        <!-- 方案 -->
+        <div class="node" data-lane="me" id="need" style="grid-row:2;grid-column:1"><b>说出需求</b></div>
+        <div class="node" data-lane="claude" id="understand" style="grid-row:2;grid-column:2"><b>理解需求</b><span>查代码、查数据、查线上</span></div>
+        <div class="node" data-lane="claude" id="cplan" style="grid-row:3;grid-column:2"><b>出一份方案</b></div>
+        <div class="node" data-lane="neon" id="nplan" style="grid-row:3;grid-column:3"><b>独立出一份方案</b><code>ask.sh plan</code></div>
+        <div class="node" data-lane="claude" id="merge" style="grid-row:4;grid-column:2"><b>逐条对比、合成一份</b><span>标清采纳了谁的、没采纳的为什么</span></div>
+        <div class="node" data-lane="me" id="approve" style="grid-row:5;grid-column:1"><i class="tag pause">停下等你</i><b>拍板</b></div>
+
+        <!-- 设计 -->
+        <div class="node" data-lane="claude" id="design" style="grid-row:6;grid-column:2"><b>出设计稿</b><span>页面结构、交互、全部文案</span></div>
+        <div class="node" data-lane="neon" id="ux" style="grid-row:7;grid-column:3"><b>审交互</b><code>ask.sh ux</code></div>
+        <div class="node" data-lane="cn" id="copy" style="grid-row:7;grid-column:4"><i class="tag">国模</i><b>审中文文案</b><span class="model">Kimi K3.1 Pro</span><code>ask.sh copy-cn</code></div>
+        <div class="node" data-lane="claude" id="revise" style="grid-row:8;grid-column:2"><b>取舍、改稿</b></div>
+
+        <!-- 后端 -->
+        <div class="node" data-lane="claude" id="spec" style="grid-row:9;grid-column:2"><b>定接口和验收标准</b><span>按难度拆块、写派活单</span></div>
+        <div class="node" data-lane="cn" id="mm" style="grid-row:10;grid-column:4"><i class="tag">国模</i><b>写成块的后端</b><span class="model">MiniMax-M3</span><span>增删改查、迁移、适配、单测</span></div>
+        <div class="node" data-lane="gpt" id="astra" style="grid-row:10;grid-column:5"><b>写难的后端</b><span class="model">GPT-6.2-Astra</span><span>并发、状态、性能、安全</span></div>
+        <div class="node" data-lane="claude" id="verify" style="grid-row:11;grid-column:2"><b>读改动、自己跑测试</b><span>前端自己写；合格才合并</span></div>
+
+        <!-- 审查 -->
+        <div class="node" data-lane="cn" id="pre" style="grid-row:12;grid-column:4"><i class="tag">国模</i><b>预审</b><span class="model">DeepSeek V4.1 Flash</span><code>review.sh pre</code></div>
+        <div class="node" data-lane="gpt" id="final" style="grid-row:13;grid-column:5"><b>终审，最多 2 轮</b><span class="model">GPT-6.2-Sol</span><code>review.sh final</code></div>
+        <div class="node" data-lane="cn" id="chores" style="grid-row:14;grid-column:4"><i class="tag">国模</i><b>写 PR 描述和更新日志</b><span class="model">MiniMax-M3.1-Flash</span><code>ask.sh chores</code></div>
+        <div class="node" data-lane="claude" id="openpr" style="grid-row:15;grid-column:2"><b>开合并请求</b><span>核对描述后 gh pr create</span></div>
+
+        <div class="pipeline" id="pipe">
+          <b>开合并请求以后，一路自动到上线</b>
+          <div class="steps">
+            <div class="step"><b>自动检查</b><span>gh pr checks</span></div>
+            <span class="arrow" aria-hidden="true">→</span>
+            <div class="step"><b>合并</b><span>没授权自动合并就先问你</span></div>
+            <span class="arrow" aria-hidden="true">→</span>
+            <div class="step"><b>发布</b><span>按项目的发布方式</span></div>
+            <span class="arrow" aria-hidden="true">→</span>
+            <div class="step"><b>核实线上</b><span class="model">MiniMax-M3.1-Flash 初筛日志</span><span>Claude 决定是否回滚</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="swipe-hint">图比屏幕宽，左右滑动查看。</p>
+  </section>
+
+  <!-- ================= 说明 ================= -->
+  <section class="two-col">
+    <div>
+      <div class="section-head">
+        <h2>国产模型的 5 个位置</h2>
+        <p>都是量大、标准清楚、做完有人验收的活。</p>
+      </div>
+      <ol class="cn-list">
+        <li><span class="m">Kimi K3.1 Pro</span><span class="w">审中文文案<small>提示语、空状态、错误信息读起来是否自然</small></span></li>
+        <li><span class="m">MiniMax-M3</span><span class="w">写成块的后端<small>有派活单和验收标准，在独立分支里做，Claude 跑过测试才合并</small></span></li>
+        <li><span class="m">DeepSeek V4.1 Flash</span><span class="w">合并前预审<small>先挑掉低级问题，让 GPT-6.2-Sol 的 2 轮终审用在要紧处</small></span></li>
+        <li><span class="m">MiniMax-M3.1-Flash</span><span class="w">PR 描述和更新日志<small>Claude 核对后再提交</small></span></li>
+        <li><span class="m">MiniMax-M3.1-Flash</span><span class="w">线上日志初筛<small>先分类，Claude 再判断要不要回滚或修复</small></span></li>
+      </ol>
+    </div>
+    <div>
+      <div class="section-head">
+        <h2>规则</h2>
+        <p>写在项目的 CLAUDE.md 里，Claude 每次开工都会读到。</p>
+      </div>
+      <ul class="rules">
+        <li>没有验收标准，不派活。</li>
+        <li>派出去的活都在独立的 git worktree 和分支里做。别的模型的回执只是报告，Claude 读完改动、跑过测试才算数。</li>
+        <li>说不清楚接口、需要权衡设计、出错代价大的后端交给 GPT-6.2-Astra，其余交给 MiniMax-M3。</li>
+        <li>MiniMax-M3 同一块连续失败 2 次，改派 GPT-6.2-Astra。</li>
+        <li>GPT-6.2-Sol 终审 2 轮后仍有分歧，列出来交给你决定。</li>
+        <li>Gemini 4 Neon 只读不写：非交互模式下它运行命令或改文件都会被自动拒绝。</li>
+        <li>密钥、用户数据、.env 内容不写进任务文件。</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>模型清单</h2>
+      <p>调用名在 <code>scripts/agents/models.env</code> 里改。主控模型在 T3 Code 的 Claude 会话里选。</p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>模型</th><th>调用名</th><th>负责</th><th>脚本角色</th><th>通道</th></tr></thead>
+        <tbody>
+          <tr><td><i class="sw" style="background:var(--claude)"></i>Claude Opus 5.5</td><td><code>claude-opus-5-5</code></td><td>主控：理解需求、合成方案、设计、定标准、写前端、验收、开合并请求、跟到上线</td><td>—</td><td class="via">T3 Code</td></tr>
+          <tr><td><i class="sw" style="background:var(--neon)"></i>Gemini 4 Neon (High)</td><td><code>gemini-4-neon-high</code></td><td>独立出方案、审交互</td><td><code>plan</code> <code>ux</code></td><td class="via">Antigravity</td></tr>
+          <tr><td><i class="sw" style="background:var(--cn)"></i>Kimi K3.1 Pro<span class="chip-cn">国模</span></td><td><code>auto/kimi-k3.1-pro</code></td><td>审中文文案</td><td><code>copy-cn</code></td><td class="via">Codex</td></tr>
+          <tr><td><i class="sw" style="background:var(--cn)"></i>MiniMax-M3<span class="chip-cn">国模</span></td><td><code>minimax-cn/MiniMax-M3</code></td><td>写成块的后端</td><td><code>backend-easy</code></td><td class="via">Codex</td></tr>
+          <tr><td><i class="sw" style="background:var(--cn)"></i>MiniMax-M3.1-Flash<span class="chip-cn">国模</span></td><td><code>minimax-cn/MiniMax-M3.1-Flash</code></td><td>PR 描述、更新日志、线上日志初筛</td><td><code>chores</code></td><td class="via">Codex</td></tr>
+          <tr><td><i class="sw" style="background:var(--cn)"></i>DeepSeek V4.1 Flash<span class="chip-cn">国模</span></td><td><code>auto/deepseek-v4.1-flash</code></td><td>合并前预审</td><td><code>review pre</code></td><td class="via">Codex</td></tr>
+          <tr><td><i class="sw" style="background:var(--gpt)"></i>GPT-6.2-Astra</td><td><code>gpt-6.2-astra</code></td><td>写难的后端</td><td><code>backend-hard</code></td><td class="via">Codex</td></tr>
+          <tr><td><i class="sw" style="background:var(--gpt)"></i>GPT-6.2-Sol</td><td><code>gpt-6.2-sol</code></td><td>终审，最多 2 轮</td><td><code>review final</code></td><td class="via">Codex</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer>入口命令：<code>scripts/agents/ask.sh &lt;角色&gt; &lt;任务文件&gt; [--write]</code> 和 <code>scripts/agents/review.sh pre|final</code>。在 T3 Code 的 Claude 会话里输入 <code>/ship</code> 加需求即可按此流程运行。</footer>
+</div>
+
+<script>
+const EDGES = {
+  topo: [
+    ["t-me", "t-t3"], ["t-t3", "t-claude"], ["t-claude", "t-ask"], ["t-claude", "t-review"],
+    ["t-ask", "t-agy", "plan · ux"], ["t-ask", "t-codex", "其余角色"], ["t-review", "t-codex"],
+    ["t-agy", "t-neon"], ["t-codex", "t-models"]
+  ],
+  flow: [
+    ["need", "understand"], ["understand", "cplan"], ["understand", "nplan", "各出一份"],
+    ["cplan", "merge"], ["nplan", "merge"], ["merge", "approve"], ["approve", "design"],
+    ["design", "ux"], ["design", "copy", "并行送审"], ["ux", "revise"], ["copy", "revise"],
+    ["revise", "spec"], ["spec", "mm", "派活单"], ["spec", "astra"],
+    ["mm", "verify", "回执"], ["astra", "verify"],
+    ["verify", "pre"], ["pre", "final"], ["final", "chores"], ["chores", "openpr"], ["openpr", "pipe"]
+  ]
+};
+
+function rectIn(el, base) {
+  const r = el.getBoundingClientRect();
+  const l = r.left - base.left, t = r.top - base.top;
+  return { l, t, r: l + r.width, b: t + r.height, cx: l + r.width / 2, cy: t + r.height / 2 };
+}
+
+function draw(id) {
+  const root = document.getElementById(id);
+  if (!root) return;
+  const svg = root.querySelector(".wires");
+  const labels = root.querySelector(".wire-labels");
+  const base = root.getBoundingClientRect();
+  const w = root.scrollWidth, h = root.scrollHeight;
+  svg.setAttribute("width", w);
+  svg.setAttribute("height", h);
+  svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+
+  let paths = `<defs><marker id="tip-${id}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="tip" d="M0 0 L10 5 L0 10 z"/></marker></defs>`;
+  let tags = "";
+
+  for (const [from, to, label] of EDGES[id]) {
+    const a = document.getElementById(from), b = document.getElementById(to);
+    if (!a || !b) continue;
+    const A = rectIn(a, base), B = rectIn(b, base);
+    let d, lx, ly;
+    const sameRow = A.t < B.b && B.t < A.b;
+    if (sameRow) {
+      const right = B.cx > A.cx;
+      const x1 = right ? A.r : A.l, x2 = right ? B.l : B.r;
+      const y = (Math.max(A.t, B.t) + Math.min(A.b, B.b)) / 2;
+      d = `M${x1} ${y} H${x2}`;
+      lx = (x1 + x2) / 2; ly = y - 10;
+    } else {
+      const sx = A.cx;
+      const tx = (sx > B.l + 12 && sx < B.r - 12) ? sx : B.cx;
+      const y1 = A.b, y2 = B.t, my = y1 + (y2 - y1) / 2;
+      d = tx === sx ? `M${sx} ${y1} V${y2}` : `M${sx} ${y1} V${my} H${tx} V${y2}`;
+      lx = (sx + tx) / 2; ly = my;
+    }
+    paths += `<path class="wire" d="${d}" marker-end="url(#tip-${id})"/>`;
+    if (label) tags += `<span class="wire-label" style="left:${lx}px;top:${ly}px">${label}</span>`;
+  }
+  svg.innerHTML = paths;
+  labels.innerHTML = tags;
+}
+
+function drawAll() { draw("topo"); draw("flow"); }
+let pending = 0;
+function schedule() { cancelAnimationFrame(pending); pending = requestAnimationFrame(drawAll); }
+
+drawAll();
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(schedule);
+window.addEventListener("load", schedule);
+if ("ResizeObserver" in window) {
+  const ro = new ResizeObserver(schedule);
+  document.querySelectorAll(".stage, .stage .node").forEach(el => ro.observe(el));
+} else {
+  window.addEventListener("resize", schedule);
+}
+</script>

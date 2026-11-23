@@ -1,0 +1,76 @@
+{
+  "config": {
+    "scenarios": 300,
+    "seed": 42,
+    "modules": 6,
+    "functions_per_module": 8,
+    "agents_per_scenario": "2-5",
+    "edit_mix": {
+      "modify": 0.6,
+      "append": 0.25,
+      "insert": 0.15
+    }
+  },
+  "branches": 1037,
+  "conflicting_branches": 190,
+  "scenarios_with_conflict": 148,
+  "pairs": 1463,
+  "pairs_sharing_a_file": 837,
+  "pairs_truly_conflicting": 233,
+  "early_warning": {
+    "file_overlap": {
+      "tp": 190,
+      "fp": 339,
+      "fn": 0,
+      "tn": 508,
+      "precision": 0.3592,
+      "recall": 1.0,
+      "false_alarm_rate": 0.4002,
+      "f1": 0.5285
+    },
+    "merge_tree": {
+      "tp": 190,
+      "fp": 0,
+      "fn": 0,
+      "tn": 847,
+      "precision": 1.0,
+      "recall": 1.0,
+      "false_alarm_rate": 0.0,
+      "f1": 1.0
+    }
+  },
+  "merge_time_exactness": {
+    "checks": 1037,
+    "mismatches": 0
+  },
+  "latency": [
+    {
+      "worktrees": 2,
+      "median_ms": 139.1,
+      "max_ms": 155.8
+    },
+    {
+      "worktrees": 4,
+      "median_ms": 272.6,
+      "max_ms": 299.0
+    },
+    {
+      "worktrees": 8,
+      "median_ms": 674.3,
+      "max_ms": 695.6
+    },
+    {
+      "worktrees": 12,
+      "median_ms": 1301.1,
+      "max_ms": 1369.1
+    },
+    {
+      "worktrees": 16,
+      "median_ms": 1944.2,
+      "max_ms": 2046.8
+    }
+  ],
+  "runtime_s": 146.3,
+  "git": "git version 2.50.1 (Apple Git-155)",
+  "python": "3.15.2"
+}

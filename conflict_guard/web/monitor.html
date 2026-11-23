@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>多 Agent 监控台</title>
+<style>
+/* Layout: 运维台。冲突排最前，其后是正在干活的模型、T3 会话、各工作区改动、最近完成。 */
+:root {
+  --bg: #F3F4F6; --panel: #FFFFFF; --fg: #16181D; --muted: #5E6573; --rule: #E0E3E8; --soft: #F0F2F5;
+  --claude: #B0532A; --cn: #0B7F61; --cn-tint: #E1F3EC; --gpt: #3E4651; --neon: #5A52C7;
+  --high: #C62F3E; --high-tint: #FCEBED; --mid: #B26A00; --mid-tint: #FDF2E0; --low: #5E6573; --low-tint: #EEF0F3;
+  --ok: #1E7F4F; --run: #2D5BD0; --run-tint: #E7EDFC;
+  --font: "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0E1013; --panel: #171A1F; --fg: #E8EAEE; --muted: #9AA1AD; --rule: #2A2E36; --soft: #1E2228;
+    --claude: #F09A70; --cn: #52CDA6; --cn-tint: #12302A; --gpt: #C5CBD4; --neon: #ABA5FF;
+    --high: #FF7A86; --high-tint: #3A1A1F; --mid: #F2B050; --mid-tint: #33270F; --low: #9AA1AD; --low-tint: #22262C;
+    --ok: #5BD39A; --run: #86A6FF; --run-tint: #1B2541;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 14px; line-height: 1.55; }
+.wrap { max-width: 1240px; margin: 0 auto; padding: 20px 16px 48px; display: flex; flex-direction: column; gap: 22px; }
+code, .mono { font-family: var(--mono); font-size: 12px; }
+
+.top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 20px; }
+.top h1 { margin: 0; font-size: 20px; font-weight: 700; }
+.top .meta { color: var(--muted); font-size: 13px; display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; }
+.live { display: inline-flex; align-items: center; gap: 6px; }
+.live i { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+.live.down i { background: var(--high); }
+.boss { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px; background: var(--panel); border: 1px solid var(--rule); color: var(--fg); }
+.boss b { color: var(--claude); }
+
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 760px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.stat { background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; padding: 12px 14px; }
+.stat .n { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.stat .l { color: var(--muted); font-size: 12.5px; }
+.stat.alert .n { color: var(--high); }
+
+h2 { font-size: 15px; margin: 0 0 10px; display: flex; align-items: baseline; gap: 8px; }
+h2 small { font-weight: 400; color: var(--muted); font-size: 12.5px; }
+.empty { color: var(--muted); background: var(--panel); border: 1px dashed var(--rule); border-radius: 12px; padding: 14px 16px; }
+.banner { padding: 10px 14px; border-radius: 10px; background: var(--high-tint); color: var(--high); }
+
+.conflicts { display: flex; flex-direction: column; gap: 10px; }
+.cf { border-radius: 12px; padding: 12px 14px; display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 4px 12px; }
+.cf.high { background: var(--high-tint); } .cf.medium { background: var(--mid-tint); } .cf.low { background: var(--low-tint); }
+.lvl { grid-row: 1 / span 4; align-self: start; text-align: center; font-weight: 700; font-size: 12px; border-radius: 6px; padding: 2px 0; color: var(--panel); }
+.cf.high .lvl { background: var(--high); } .cf.medium .lvl { background: var(--mid); } .cf.low .lvl { background: var(--low); }
+.cf .t { font-weight: 700; }
+.cf .t span { font-weight: 400; color: var(--muted); margin-right: 6px; }
+.cf .who, .cf .files { font-size: 13px; overflow-wrap: anywhere; }
+.cf .sg { font-size: 13px; color: var(--muted); }
+.routed { font-size: 12px; color: var(--claude); font-weight: 600; }
+
+.agents { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; }
+@media (max-width: 420px) { .agents { grid-template-columns: minmax(0, 1fr); } }
+.card { background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.card .head { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
+.card .name { font-weight: 700; font-size: 15px; }
+.card .role { color: var(--muted); font-size: 13px; }
+.pill { display: inline-block; font-size: 11.5px; font-weight: 600; border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+.pill.running { background: var(--run-tint); color: var(--run); }
+.pill.done { background: var(--cn-tint); color: var(--ok); }
+.pill.failed, .pill.interrupted { background: var(--high-tint); color: var(--high); }
+.pill.idle { background: var(--soft); color: var(--muted); }
+.cn-chip { font-size: 11px; font-weight: 700; color: var(--cn); border: 1px solid var(--cn); border-radius: 999px; padding: 0 6px; margin-left: 6px; vertical-align: 2px; }
+.route { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 12px; }
+.route span { background: var(--soft); border-radius: 6px; padding: 1px 7px; }
+.route span:last-child { background: var(--run-tint); color: var(--run); font-weight: 600; }
+.route i { color: var(--muted); font-style: normal; }
+.kv { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 2px 8px; font-size: 13px; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; overflow-wrap: anywhere; }
+.files { display: flex; flex-wrap: wrap; gap: 4px; }
+.files code { background: var(--soft); border-radius: 5px; padding: 0 6px; }
+.files code.hot { background: var(--high-tint); color: var(--high); }
+
+.list { background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; min-width: 680px; font-size: 13px; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-size: 12px; font-weight: 500; color: var(--muted); background: var(--soft); }
+tr:last-child td { border-bottom: 0; }
+td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.steps { color: var(--muted); font-size: 12px; }
+.note { color: var(--muted); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1 id="title">多 Agent 监控台</h1>
+    <div class="meta">
+      <span class="boss">主控 <b>Claude Opus 5.5</b></span>
+      <span class="live" id="live"><i></i><span id="liveText">连接中…</span></span>
+    </div>
+  </div>
+  <div id="banner"></div>
+
+  <div class="stats">
+    <div class="stat"><div class="n" id="sRun">0</div><div class="l">个模型正在干活</div></div>
+    <div class="stat"><div class="n" id="sT3">0</div><div class="l">个 T3 会话在运行</div></div>
+    <div class="stat" id="sCfBox"><div class="n" id="sCf">0</div><div class="l">个冲突风险</div></div>
+    <div class="stat"><div class="n" id="sRouted">0</div><div class="l">个已推送给主控</div></div>
+  </div>
+
+  <section>
+    <h2>冲突风险 <small>中高风险会自动推送给 Claude Opus 5.5 处理</small></h2>
+    <div class="conflicts" id="conflicts"></div>
+  </section>
+
+  <section>
+    <h2>正在干活 <small>谁、走哪条路由、在做什么、在改哪些文件</small></h2>
+    <div class="agents" id="agents"></div>
+  </section>
+
+  <section>
+    <h2>T3 Code 会话 <small>只读读取 T3 的本地数据</small></h2>
+    <div id="t3"></div>
+  </section>
+
+  <section>
+    <h2>各工作区的改动 <small>主工作区和每个 worktree 还没合并的文件</small></h2>
+    <div class="list"><table><thead><tr><th>工作区</th><th>分支</th><th>改动文件</th></tr></thead><tbody id="cs"></tbody></table></div>
+  </section>
+
+  <section>
+    <h2>最近完成</h2>
+    <div class="list"><table><thead><tr><th>开始</th><th>模型</th><th>角色</th><th>任务</th><th>结果</th><th>用时</th></tr></thead><tbody id="hist"></tbody></table></div>
+  </section>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const STATE = { running: "进行中", done: "完成", failed: "失败", interrupted: "中断", idle: "空闲" };
+const LEVEL = { high: "高", medium: "中", low: "低" };
+const dur = s => s < 60 ? `${Math.round(s)} 秒` : s < 3600 ? `${Math.floor(s / 60)} 分 ${Math.round(s % 60)} 秒` : `${(s / 3600).toFixed(1)} 小时`;
+const clock = t => new Date(typeof t === "number" ? t * 1000 : t).toLocaleTimeString("zh-CN", { hour12: false });
+const files = (list, hot) => (list && list.length)
+  ? `<div class="files">${list.slice(0, 14).map(f => `<code class="${hot.has(f) ? "hot" : ""}">${esc(f)}</code>`).join("")}${list.length > 14 ? `<code>+${list.length - 14}</code>` : ""}</div>`
+  : `<span class="note">还没有改动</span>`;
+
+function render(s) {
+  $("title").textContent = `多 Agent 监控台 · ${s.project}`;
+  document.title = `多 Agent 监控台 · ${s.project}`;
+  const hot = new Set(s.conflicts.filter(c => c.level !== "low").flatMap(c => c.files));
+  const running = s.agents.filter(a => a.state === "running");
+  const t3run = s.t3.filter(t => t.active);
+  $("sRun").textContent = running.length;
+  $("sT3").textContent = t3run.length;
+  $("sCf").textContent = s.conflicts.length;
+  $("sCfBox").classList.toggle("alert", s.conflicts.some(c => c.level === "high"));
+  $("sRouted").textContent = s.conflicts.filter(c => c.routed_at).length;
+
+  $("conflicts").innerHTML = s.conflicts.length ? s.conflicts.map(c => `
+    <div class="cf ${c.level}">
+      <div class="lvl">${LEVEL[c.level]}风险</div>
+      <div class="t"><span>${esc(c.kind)}</span>${esc(c.title)}</div>
+      <div class="who">涉及：${c.who.map(esc).join("；")}</div>
+      <div class="files">${c.files.map(f => `<code>${esc(f)}</code>`).join("")}</div>
+      <div class="sg">建议：${esc(c.suggestion)}
+        ${c.routed_at ? `<span class="routed"> · 已推送给主控 ${clock(c.routed_at)}</span>` : c.level === "low" ? "" : `<span class="routed"> · 等主控下一步操作时推送</span>`}</div>
+    </div>`).join("") : `<div class="empty">没有发现冲突。各方改动的文件互不重叠，分支之间预演合并也没有冲突。</div>`;
+
+  $("agents").innerHTML = running.length ? running.map(a => `
+    <div class="card">
+      <div class="head">
+        <div><div class="name">${esc(a.model_name)}${a.cn ? `<span class="cn-chip">国模</span>` : ""}</div><div class="role">${esc(a.role_label)} · ${a.mode === "write" ? "写代码" : "只读"}</div></div>
+        <div><span class="pill running">${STATE[a.state]} ${dur(a.elapsed)}</span></div>
+      </div>
+      <div class="route">${a.route.map(h => `<span>${esc(h)}</span>`).join("<i>→</i>")}</div>
+      <dl class="kv">
+        <dt>任务</dt><dd>${esc(a.title || a.task)}</dd>
+        ${a.branch ? `<dt>分支</dt><dd><code>${esc(a.branch)}</code></dd>` : ""}
+        <dt>在改</dt><dd>${a.mode === "write" ? files(a.files, hot) : `<span class="note">只读，不改文件</span>`}</dd>
+      </dl>
+    </div>`).join("") : `<div class="empty">现在没有派出去的活。Claude 通过 ask.sh 或 review.sh 派活后会出现在这里。</div>`;
+
+  $("t3").innerHTML = s.t3_error ? `<div class="empty">${esc(s.t3_error)}</div>` : s.t3.length ? `
+    <div class="list"><table><thead><tr><th>会话</th><th>模型</th><th>状态</th><th>目录</th><th>最近操作</th></tr></thead><tbody>
+    ${s.t3.map(t => `<tr>
+      <td>${esc(t.title)}${t.subagents ? `<div class="note">子 agent ${t.subagents} 个在跑</div>` : ""}</td>
+      <td>${esc(t.model_name)}${t.cn ? `<span class="cn-chip">国模</span>` : ""}<div class="note">${esc(t.provider)}</div></td>
+      <td><span class="pill ${t.active ? "running" : "idle"}">${t.active ? "运行中" : esc(t.status)}</span></td>
+      <td><code>${esc(t.worktree ? t.worktree : t.cwd)}</code>${t.worktree ? `<div class="note">独立 worktree</div>` : ""}</td>
+      <td class="steps">${t.steps.slice(0, 3).map(x => esc(x.title)).join("<br>") || "—"}</td></tr>`).join("")}
+    </tbody></table></div>` : `<div class="empty">这个项目在 T3 Code 里还没有会话。</div>`;
+
+  $("cs").innerHTML = s.changesets.map(c => `<tr>
+      <td>${esc(c.label)}</td><td><code>${esc(c.branch)}</code></td><td>${files(c.files, hot)}</td></tr>`).join("");
+
+  const done = s.agents.filter(a => a.state !== "running").slice(0, 15);
+  $("hist").innerHTML = done.length ? done.map(a => `<tr>
+      <td class="num">${clock(a.started)}</td>
+      <td>${esc(a.model_name)}${a.cn ? `<span class="cn-chip">国模</span>` : ""}</td>
+      <td>${esc(a.role_label)}</td><td>${esc(a.title || a.task)}</td>
+      <td><span class="pill ${a.state}">${STATE[a.state]}</span></td><td class="num">${dur(a.elapsed)}</td></tr>`).join("")
+    : `<tr><td colspan="6" class="note">还没有记录。</td></tr>`;
+}
+
+async function tick() {
+  try {
+    const r = await fetch("/api/state", { cache: "no-store" });
+    if (!r.ok) throw new Error(r.status);
+    render(await r.json());
+    $("live").classList.remove("down");
+    $("liveText").textContent = `每 2 秒刷新 · ${clock(Date.now() / 1000)}`;
+    $("banner").innerHTML = "";
+  } catch (e) {
+    $("live").classList.add("down");
+    $("liveText").textContent = "连接断开";
+    $("banner").innerHTML = `<div class="banner">连不上监控程序。在项目目录运行 <code>python3 scripts/agents/monitor.py serve</code> 后刷新本页。</div>`;
+  }
+}
+tick();
+setInterval(tick, 2000);
+</script>
+</body>
+</html>
